@@ -1,27 +1,24 @@
-import asyncio
-from aiogram import Bot, Dispatcher
-from aiogram.types import Message
+import time
+import requests
 import google.generativeai as genai
 
 BOT_TOKEN = "8809883023:AAFxaw4n1RZ2Jla5bzsHFWvrBLCaZbyWWAM"
 GEMINI_KEY = "AQ.Ab8RN6Lo0gq3gr0XRWSnqMkDNPB_aEF2glR5NxmcNoPvY1DOjw"
+BASE_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
-# Gemini AI Configure
+# Gemini Configure
 genai.configure(api_key=GEMINI_KEY)
 
-# Aapki persona aur rules
 SYSTEM_PROMPT = """
 You are the AI Personal Assistant (PA) of Rehan.
 Identity Rules (CRITICAL):
-- Agar koi puche 'tum kaun ho', 'who are you', 'kya naam hai', ya puchhe identity ke baare me, strictly English me reply do: "I am Rehan's PA." (ya "I am Rehan's PA, how can I help you? 😎").
+- Agar koi puche 'tum kaun ho', 'who are you', 'kya naam hai', ya identity puche, strictly English me reply do: "I am Rehan's PA." (ya "I am Rehan's PA, how can I help you? 😎").
 
 Chat Style & Personality:
-- Aapko bilkul Rehan ke style me baat karni hai: ekdam casual, chill, cool aur natural Hinglish me (jaise dost aapas me WhatsApp ya Telegram pe chat karte hain).
+- Aapko bilkul Rehan ke style me baat karni hai: ekdam casual, chill, cool aur natural Hinglish me (jaise dost log chat karte hain).
 - Har message ka reply do, kisi ko ignore ya reject mat karo.
-- Tone bilkul friendly aur energetic honi chahiye.
-- Natural tareeqe se mast emojis ka use karo (jaise 🔥, 😂, 🤝, 💯, ✨, 🙌, ⚡).
-- Replies to the point, engaging aur seedhe rakho (chote 1-2 lines me, lambe robotic essays bilkul nahi).
-- Bilkul bhi formal, boring corporate Hindi/English mat bolna.
+- Tone friendly aur mast honi chahiye. Emojis ka khoob use karo (🔥, 😂, 🤝, 💯, ✨, 🙌).
+- Replies to the point aur 1-2 lines me rakho, zyada lambe boring bhashan mat dena.
 """
 
 model = genai.GenerativeModel(
@@ -29,58 +26,69 @@ model = genai.GenerativeModel(
     system_instruction=SYSTEM_PROMPT
 )
 
-bot = Bot(token=BOT_TOKEN)
-dp = Dispatcher()
-
-bot_user_id = None
-
-@dp.business_message()
-async def handle_business_message(message: Message):
-    global bot_user_id
-    
-    # Text message check
-    if not message.text:
-        return
-        
-    # Agar bot ne khud message send kiya hai toh ignore karo taaki loop na bane
-    if message.from_user and message.from_user.id == bot_user_id:
-        return
-
-    # Typing status dikhana
+def get_bot_id():
     try:
-        await bot.send_chat_action(
-            chat_id=message.chat.id,
-            action="typing",
-            business_connection_id=message.business_connection_id
-        )
+        res = requests.get(f"{BASE_URL}/getMe").json()
+        return res.get("result", {}).get("id")
     except Exception:
-        pass
+        return None
 
+def send_reply(chat_id, text, connection_id):
     try:
-        # AI se smart reply lena
-        response = await asyncio.to_thread(model.generate_content, message.text)
-        if response and response.text:
-            reply_text = response.text.strip()
-        else:
-            reply_text = "Bolo bhai! Kya scene hai? 🔥"
+        payload = {
+            "chat_id": chat_id,
+            "text": text,
+            "business_connection_id": connection_id
+        }
+        requests.post(f"{BASE_URL}/sendMessage", json=payload, timeout=10)
     except Exception as e:
-        print(f"Error: {e}")
-        reply_text = "Haan sun raha hu bhai, bolo kya baat hai? 🙌"
+        print(f"Send Error: {e}")
 
-    # Message bhejna
-    await bot.send_message(
-        chat_id=message.chat.id,
-        text=reply_text,
-        business_connection_id=message.business_connection_id
-    )
+def main():
+    bot_id = get_bot_id()
+    print(f"🔥 PA OF REHANNN Bot live ho gaya hai! (Bot ID: {bot_id})")
+    
+    offset = None
+    while True:
+        try:
+            params = {"timeout": 30, "allowed_updates": ["business_message"]}
+            if offset:
+                params["offset"] = offset
 
-async def main():
-    global bot_user_id
-    me = await bot.get_me()
-    bot_user_id = me.id
-    print(f"✅ PA OF REHANNN (@{me.username}) ab fully active hai!")
-    await dp.start_polling(bot)
+            resp = requests.get(f"{BASE_URL}/getUpdates", params=params, timeout=40).json()
+
+            for update in resp.get("result", []):
+                offset = update["update_id"] + 1
+
+                # Business message handle karna
+                if "business_message" in update:
+                    b_msg = update["business_message"]
+                    sender = b_msg.get("from", {})
+                    
+                    # Agar bot ka khud ka message ho toh ignore karo
+                    if sender.get("id") == bot_id:
+                        continue
+
+                    user_text = b_msg.get("text")
+                    if not user_text:
+                        continue
+
+                    chat_id = b_msg["chat"]["id"]
+                    conn_id = b_msg.get("business_connection_id")
+
+                    # AI Response
+                    try:
+                        ai_res = model.generate_content(user_text)
+                        reply = ai_res.text.strip() if ai_res and ai_res.text else "Bolo bhai! Kya haal? 🔥"
+                    except Exception:
+                        reply = "Haan bhai bolo, kya scene hai? 🙌"
+
+                    # Reply send karo
+                    send_reply(chat_id, reply, conn_id)
+
+        except Exception as err:
+            time.sleep(2)
 
 if __name__ == "__main__":
-    asyncio.run(main())
-        
+    main()
+    
