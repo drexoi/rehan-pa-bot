@@ -2,7 +2,6 @@ import time
 import threading
 import requests
 from flask import Flask
-from google import genai
 
 app = Flask(__name__)
 
@@ -13,8 +12,7 @@ def home():
 BOT_TOKEN = "8809883023:AAHfH_Z_KqD4UPltDJWSJnvfwBEv22flMVQ"
 GEMINI_KEY = "AQ.Ab8RN6Jofq6-T63jgpwRRUQy3cv8cC5VY25s8L4W2BTCDLHqbA"
 BASE_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
-
-ai_client = genai.Client(api_key=GEMINI_KEY)
+GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_KEY}"
 
 SYSTEM_PROMPT = """
 You are acting as the AI Personal Assistant (PA) of Rehan.
@@ -22,10 +20,10 @@ Identity Rules (STRICT):
 - When someone asks 'who are you', 'tum kaun ho', or asks identity, reply in English: "I am Rehan's PA." (or "I am Rehan's PA, how can I help you? 😎").
 
 Tone & Personality:
-- Chat like a real person in natural, chill, friendly Hinglish (jaise WhatsApp/Telegram pe dost aapas me baat karte hain).
+- Chat like a real person in natural, chill, friendly Hinglish (jaise dost log chat karte hain).
 - Har message ka reply do, kisi ko ignore ya reject mat karo.
 - Emojis ka khoob use karo (🔥, 😂, 🤝, 💯, ✨, 🙌).
-- Short and crisp answers (1-2 sentences max), robotic bhashan bilkul mat dena.
+- Short and crisp answers (1-2 sentences max), robotic lambe bhashan bilkul mat dena.
 """
 
 processed_msg_ids = set()
@@ -33,17 +31,24 @@ rehan_active_chats = {}
 
 def get_ai_reply(user_text):
     try:
-        response = ai_client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=user_text,
-            config={
-                "system_instruction": SYSTEM_PROMPT
-            }
-        )
-        if response and response.text:
-            return response.text.strip()
+        payload = {
+            "system_instruction": {
+                "parts": [{"text": SYSTEM_PROMPT}]
+            },
+            "contents": [{
+                "parts": [{"text": user_text}]
+            }]
+        }
+        res = requests.post(GEMINI_URL, json=payload, timeout=12)
+        data = res.json()
+        candidates = data.get("candidates", [])
+        if candidates:
+            reply = candidates[0]["content"]["parts"][0]["text"]
+            return reply.strip()
+        else:
+            print("Gemini API Error:", data)
     except Exception as e:
-        print("Gemini API Error:", e)
+        print("API Call Exception:", e)
     return None
 
 def send_reply(chat_id, text, connection_id):
@@ -58,7 +63,7 @@ def send_reply(chat_id, text, connection_id):
         print(f"Send error: {e}")
 
 def run_bot():
-    print("🔥 PA OF REHANNN Smart Bot start ho gaya hai...")
+    print("🔥 PA OF REHANNN Smart Bot loop active ho gaya hai...")
     offset = None
     
     while True:
@@ -89,11 +94,11 @@ def run_bot():
                     # Agar message khud Rehan ne bheja hai (Outgoing)
                     is_outbound = b_msg.get("is_outgoing", False)
                     if is_outbound:
-                        # Rehan active ho gaya, agle 10 min ke liye bot chup rahega
+                        # Rehan active hai, bot 10 minute tak is chat me reply nahi dega
                         rehan_active_chats[chat_id] = time.time()
                         continue
 
-                    # Agar Rehan pichle 10 minute me chat kar chuka hai toh bot beech me nahi aayega
+                    # Agar Rehan ne pichle 10 minute me message kiya tha, bot shant rahega
                     if chat_id in rehan_active_chats:
                         elapsed = time.time() - rehan_active_chats[chat_id]
                         if elapsed < 600:
@@ -120,7 +125,7 @@ def run_bot():
 
                     send_reply(chat_id, reply, conn_id)
 
-        except Exception as err:
+        except Exception:
             time.sleep(2)
 
 if __name__ == "__main__":
@@ -128,4 +133,4 @@ if __name__ == "__main__":
     t.daemon = True
     t.start()
     app.run(host="0.0.0.0", port=10000)
- 
+            
