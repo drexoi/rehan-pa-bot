@@ -1,24 +1,31 @@
 import time
+import threading
 import requests
+from flask import Flask
 import google.generativeai as genai
+
+app = Flask(__name__)
+
+@app.route("/")
+def home():
+    return "PA OF REHANNN Bot is active and running 24/7!"
 
 BOT_TOKEN = "8809883023:AAFxaw4n1RZ2Jla5bzsHFWvrBLCaZbyWWAM"
 GEMINI_KEY = "AQ.Ab8RN6Lo0gq3gr0XRWSnqMkDNPB_aEF2glR5NxmcNoPvY1DOjw"
 BASE_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
-# Gemini Configure
 genai.configure(api_key=GEMINI_KEY)
 
 SYSTEM_PROMPT = """
 You are the AI Personal Assistant (PA) of Rehan.
 Identity Rules (CRITICAL):
-- Agar koi puche 'tum kaun ho', 'who are you', 'kya naam hai', ya identity puche, strictly English me reply do: "I am Rehan's PA." (ya "I am Rehan's PA, how can I help you? 😎").
+- Agar koi puche 'tum kaun ho', 'who are you', 'kya naam hai', strictly English me bolo: "I am Rehan's PA." (ya "I am Rehan's PA, how can I help you? 😎").
 
 Chat Style & Personality:
-- Aapko bilkul Rehan ke style me baat karni hai: ekdam casual, chill, cool aur natural Hinglish me (jaise dost log chat karte hain).
-- Har message ka reply do, kisi ko ignore ya reject mat karo.
-- Tone friendly aur mast honi chahiye. Emojis ka khoob use karo (🔥, 😂, 🤝, 💯, ✨, 🙌).
-- Replies to the point aur 1-2 lines me rakho, zyada lambe boring bhashan mat dena.
+- Aapko bilkul Rehan ke style me baat karni hai: chill, casual, friendly Hinglish me (jaise WhatsApp/Telegram pe dosto se baat hoti hai).
+- Har message ka supportive aur mast reply do, kisi ko ignore ya reject mat karo.
+- Emojis ka natural tareeqe se khoob use karo (🔥, 😂, 🤝, 💯, ✨, 🙌).
+- Short aur engaging replies rakho (1-2 lines), boring formal paragraphs nahi.
 """
 
 model = genai.GenerativeModel(
@@ -42,30 +49,28 @@ def send_reply(chat_id, text, connection_id):
         }
         requests.post(f"{BASE_URL}/sendMessage", json=payload, timeout=10)
     except Exception as e:
-        print(f"Send Error: {e}")
+        print(f"Send error: {e}")
 
-def main():
+def run_bot():
     bot_id = get_bot_id()
-    print(f"🔥 PA OF REHANNN Bot live ho gaya hai! (Bot ID: {bot_id})")
-    
+    print(f"🔥 PA OF REHANNN Bot running with ID: {bot_id}")
     offset = None
     while True:
         try:
-            params = {"timeout": 30, "allowed_updates": ["business_message"]}
+            params = {"timeout": 20, "allowed_updates": ["business_message"]}
             if offset:
                 params["offset"] = offset
 
-            resp = requests.get(f"{BASE_URL}/getUpdates", params=params, timeout=40).json()
+            resp = requests.get(f"{BASE_URL}/getUpdates", params=params, timeout=30).json()
 
             for update in resp.get("result", []):
                 offset = update["update_id"] + 1
 
-                # Business message handle karna
                 if "business_message" in update:
                     b_msg = update["business_message"]
                     sender = b_msg.get("from", {})
-                    
-                    # Agar bot ka khud ka message ho toh ignore karo
+
+                    # Khud ke message par trigger na ho
                     if sender.get("id") == bot_id:
                         continue
 
@@ -76,19 +81,20 @@ def main():
                     chat_id = b_msg["chat"]["id"]
                     conn_id = b_msg.get("business_connection_id")
 
-                    # AI Response
                     try:
                         ai_res = model.generate_content(user_text)
-                        reply = ai_res.text.strip() if ai_res and ai_res.text else "Bolo bhai! Kya haal? 🔥"
+                        reply = ai_res.text.strip() if ai_res and ai_res.text else "Bolo bhai! Kya scene hai? 🔥"
                     except Exception:
-                        reply = "Haan bhai bolo, kya scene hai? 🙌"
+                        reply = "Haan bhai sun raha hu, bolo kya baat hai? 🙌"
 
-                    # Reply send karo
                     send_reply(chat_id, reply, conn_id)
 
-        except Exception as err:
+        except Exception:
             time.sleep(2)
 
 if __name__ == "__main__":
-    main()
+    t = threading.Thread(target=run_bot)
+    t.daemon = True
+    t.start()
+    app.run(host="0.0.0.0", port=10000)
     
