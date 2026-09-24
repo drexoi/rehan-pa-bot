@@ -2,43 +2,55 @@ import time
 import threading
 import requests
 from flask import Flask
-import google.generativeai as genai
 
 app = Flask(__name__)
 
 @app.route("/")
 def home():
-    return "PA OF REHANNN Bot is active and running 24/7!"
+    return "PA OF REHANNN 24/7 Live!"
 
 BOT_TOKEN = "8809883023:AAFxaw4n1RZ2Jla5bzsHFWvrBLCaZbyWWAM"
 GEMINI_KEY = "AQ.Ab8RN6Lo0gq3gr0XRWSnqMkDNPB_aEF2glR5NxmcNoPvY1DOjw"
 BASE_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
-
-genai.configure(api_key=GEMINI_KEY)
+GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_KEY}"
 
 SYSTEM_PROMPT = """
-You are the AI Personal Assistant (PA) of Rehan.
-Identity Rules (CRITICAL):
-- Agar koi puche 'tum kaun ho', 'who are you', 'kya naam hai', strictly English me bolo: "I am Rehan's PA." (ya "I am Rehan's PA, how can I help you? 😎").
+You are acting as the AI Personal Assistant (PA) of Rehan.
+Identity Rules (STRICT):
+- When someone asks 'who are you', 'tum kaun ho', or asks identity, reply in English: "I am Rehan's PA." (or "I am Rehan's PA, how can I help you? 😎").
 
-Chat Style & Personality:
-- Aapko bilkul Rehan ke style me baat karni hai: chill, casual, friendly Hinglish me (jaise WhatsApp/Telegram pe dosto se baat hoti hai).
-- Har message ka supportive aur mast reply do, kisi ko ignore ya reject mat karo.
-- Emojis ka natural tareeqe se khoob use karo (🔥, 😂, 🤝, 💯, ✨, 🙌).
-- Short aur engaging replies rakho (1-2 lines), boring formal paragraphs nahi.
+Tone & Personality:
+- Chat like a real person in natural, chill, friendly Hinglish.
+- Emojis ka khoob use karo (🔥, 😂, 🤝, 💯, ✨, 🙌).
+- Never refuse to answer. Short and crisp answers (1-2 sentences).
 """
 
-model = genai.GenerativeModel(
-    model_name="gemini-1.5-flash",
-    system_instruction=SYSTEM_PROMPT
-)
+# Already processed messages ko store karne ke liye taaki repeat na ho
+processed_msg_ids = set()
 
-def get_bot_id():
+def get_ai_reply(user_text):
     try:
-        res = requests.get(f"{BASE_URL}/getMe").json()
-        return res.get("result", {}).get("id")
-    except Exception:
-        return None
+        payload = {
+            "system_instruction": {
+                "parts": [{"text": SYSTEM_PROMPT}]
+            },
+            "contents": [{
+                "parts": [{"text": user_text}]
+            }]
+        }
+        res = requests.post(GEMINI_URL, json=payload, timeout=10)
+        data = res.json()
+        
+        # Text extract karna
+        candidates = data.get("candidates", [])
+        if candidates:
+            reply = candidates[0]["content"]["parts"][0]["text"]
+            return reply.strip()
+        else:
+            print("Gemini API Error:", data)
+    except Exception as e:
+        print("AI Exception:", e)
+    return None
 
 def send_reply(chat_id, text, connection_id):
     try:
@@ -52,9 +64,9 @@ def send_reply(chat_id, text, connection_id):
         print(f"Send error: {e}")
 
 def run_bot():
-    bot_id = get_bot_id()
-    print(f"🔥 PA OF REHANNN Bot running with ID: {bot_id}")
+    print("🔥 PA OF REHANNN Bot loop start ho gaya hai...")
     offset = None
+    
     while True:
         try:
             params = {"timeout": 20, "allowed_updates": ["business_message"]}
@@ -68,24 +80,42 @@ def run_bot():
 
                 if "business_message" in update:
                     b_msg = update["business_message"]
-                    sender = b_msg.get("from", {})
-
-                    # Khud ke message par trigger na ho
-                    if sender.get("id") == bot_id:
+                    msg_id = b_msg.get("message_id")
+                    
+                    # 1. Loop protection: Ek hi message ko dubara process mat karo
+                    if msg_id in processed_msg_ids:
                         continue
+                    processed_msg_ids.add(msg_id)
+                    
+                    # Memory clear rakhne ke liye
+                    if len(processed_msg_ids) > 1000:
+                        processed_msg_ids.clear()
 
                     user_text = b_msg.get("text")
                     if not user_text:
                         continue
 
+                    # 2. Self loop check (PA OF REHANNN ka apna reply ignore karo)
+                    if "PA OF REHANNN" in user_text:
+                        continue
+
                     chat_id = b_msg["chat"]["id"]
                     conn_id = b_msg.get("business_connection_id")
 
+                    # Typing status show karna
                     try:
-                        ai_res = model.generate_content(user_text)
-                        reply = ai_res.text.strip() if ai_res and ai_res.text else "Bolo bhai! Kya scene hai? 🔥"
+                        requests.post(f"{BASE_URL}/sendChatAction", json={
+                            "chat_id": chat_id,
+                            "action": "typing",
+                            "business_connection_id": conn_id
+                        }, timeout=5)
                     except Exception:
-                        reply = "Haan bhai sun raha hu, bolo kya baat hai? 🙌"
+                        pass
+
+                    # Gemini se reply
+                    reply = get_ai_reply(user_text)
+                    if not reply:
+                        reply = "Haan bhai bolo, kya scene hai? 🔥"
 
                     send_reply(chat_id, reply, conn_id)
 
