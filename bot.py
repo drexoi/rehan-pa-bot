@@ -13,7 +13,7 @@ def home():
     return "PA OF REHANNN 24/7 Live!"
 
 # Apna naya bot token yahan daalein
-BOT_TOKEN = "8809883023:AAHfH_Z_KqD4UPltDJWSJnvfwBEv22flMVQ"
+BOT_TOKEN = "8809883023:AAHFjmVVAFdo75u1MCgRMkcgVymJmuXlGR8"
 GEMINI_KEY = "AQ.Ab8RN6I1k5p6rbrIcRXEnZxa6u9uWlghABXNj5Z2lhKmNvIBbw"
 
 BASE_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
